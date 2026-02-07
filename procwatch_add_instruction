@@ -1,0 +1,62 @@
+# добавление зависимостей
+sudo apt update
+sudo apt install -y lsof psmisc stress  # lsof для файлов, psmisc для pstree, stress для тестов
+
+# настройка прав для логов
+sudo chown -R $USER:adm /var/log/suspicious-processes
+sudo chmod -R 755 /var/log/suspicious-processes
+
+# Запустим нагрузку в фоне (4 ядра на 60 сек)
+stress --cpu 4 --timeout 60s &
+
+# Подождём 10 сек и запустим мониторинг
+sleep 10
+sudo /usr/local/bin/procwatch.sh
+
+# Проверим логи
+ls -lh /var/log/suspicious-processes/
+cat /var/log/suspicious-processes/procwatch.log
+
+###################################################################
+######## Создаём сервис ###########################################
+sudo tee /etc/systemd/system/procwatch.service > /dev/null <<'EOF'
+[Unit]
+Description=Мониторинг подозрительных процессов
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/procwatch.sh
+User=root
+EOF
+
+# Создаём таймер
+sudo tee /etc/systemd/system/procwatch.timer > /dev/null <<'EOF'
+[Unit]
+Description=Запуск procwatch каждые 30 секунд
+Requires=procwatch.service
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+#########################################################################
+#########################################################################
+
+# Активируем
+sudo systemctl daemon-reload
+sudo systemctl enable --now procwatch.timer
+sudo systemctl status procwatch.timer
+
+# Статус таймера
+systemctl status procwatch.timer --no-pager
+
+# Последние записи в логе
+tail -20 /var/log/suspicious-processes/procwatch.log
+
+# Список собранных дампов
+ls -lhtr /var/log/suspicious-processes/dump_*
